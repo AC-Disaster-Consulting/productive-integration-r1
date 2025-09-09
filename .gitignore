@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# VS Code
+.vscode/
+
+# Packaging / build artifacts
+package/
+function.zip
+dist/
+build/
+
+# OS noise
+.DS_Store
+Thumbs.db
