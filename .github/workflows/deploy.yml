@@ -1,0 +1,54 @@
+name: Deploy Lambda
+
+on:
+  push:
+    branches: [ "main" ]   # deploy on push to main
+  workflow_dispatch:       # allow manual runs
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write      # needed for OIDC
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build deployment package
+        run: |
+          rm -rf package function.zip
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -t package
+          cp lambda_function.py package/
+          cd package && zip -r ../function.zip .
+
+      - name: Update Lambda code (+ publish version)
+        run: |
+          aws lambda update-function-code \
+            --function-name "${{ secrets.LAMBDA_FUNCTION_NAME }}" \
+            --zip-file fileb://function.zip \
+            --publish \
+            --output json > update-output.json
+
+      # Optional: move "prod" alias to the new version
+      - name: Point alias "prod" to new version
+        run: |
+          VERSION=$(jq -r '.Version' update-output.json)
+          # create alias if it doesn't exist, otherwise update it
+          if aws lambda get-alias --function-name "${{ secrets.LAMBDA_FUNCTION_NAME }}" --name prod >/dev/null 2>&1; then
+            aws lambda update-alias --function-name "${{ secrets.LAMBDA_FUNCTION_NAME }}" --name prod --function-version "$VERSION"
+          else
+            aws lambda create-alias --function-name "${{ secrets.LAMBDA_FUNCTION_NAME }}" --name prod --function-version "$VERSION"
+          fi
